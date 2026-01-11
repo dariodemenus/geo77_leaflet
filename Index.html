@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
+    <title>Gletscheratlas Schweiz</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/gokertanrisever/leaflet-ruler@master/src/leaflet-ruler.css">  
+    <script src="https://cdn.jsdelivr.net/gh/gokertanrisever/leaflet-ruler@master/src/leaflet-ruler.js"></script>
+    
+    <script src="swiss_glaciers_clean.js"></script>
+    
+    <style>
+        html, body { width: 100%; height: 100%; padding: 0; margin: 0; font-family: 'Helvetica Neue', Arial, sans-serif; }
+        #mapid { width: 100%; height: 100%; }
+        
+        /* --- UI ELEMENTE --- */
+        
+        /* Suchbox */
+        .search-control {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        .search-input {
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            width: 150px;
+        }
+        .search-btn {
+            padding: 5px 10px;
+            background-color: #005a8d;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .search-btn:hover { background-color: #00406b; }
+
+        /* Statistik Box (Live Analyse) */
+        .stats-box {
+            background: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+            margin-right: 10px;
+            min-width: 150px;
+            font-size: 14px;
+            border-left: 4px solid #ff7800; /* Oranger Akzent */
+        }
+
+        /* Titel unten links */
+        .map-title {
+            background: rgba(255, 255, 255, 0.95);
+            border-left: 5px solid #005a8d;
+            padding: 12px 15px;
+            border-radius: 4px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            font-size: 16px;
+            color: #333;
+            max-width: 300px;
+        }
+        .map-title h1 {
+            margin: 0 0 5px 0;
+            font-size: 18px;
+            color: #005a8d;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .map-title p { margin: 0; font-size: 12px; color: #666; }
+
+        /* Legende unten rechts */
+        .legend {
+            line-height: 18px;
+            color: #555;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+        }
+        .legend i {
+            width: 18px; height: 18px;
+            float: left;
+            margin-right: 8px;
+            opacity: 0.7;
+        }
+
+        /* Begrüßungsfenster (Modal) */
+        #welcome-modal {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.5s;
+        }
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 600px;
+            width: 80%;
+            text-align: center;
+            box-shadow: 0 5px 30px rgba(0,0,0,0.5);
+        }
+        .modal-content h2 {
+            color: #005a8d;
+            margin-top: 0;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        .start-btn {
+            background-color: #005a8d;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            font-size: 1.1em;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        .start-btn:hover { background-color: #003f63; }
+    </style>   
+</head>
+<body>
+
+<div id="welcome-modal">
+    <div class="modal-content">
+        <h2>GLIMS Gletscher-Projekt Schweiz</h2>
+        <p>
+            Willkommen auf dem interaktiven Gletscheratlas.
+            <br><br>
+            <b>Funktionen:</b><br>
+            • Clicke auf einen Gletscher für Informationen<br>
+            • Einfärbung nach Flächengröße<br>
+            • Live-Statistiken im aktuellen Ausschnitt<br>
+            • Suche nach Gletschernamen
+        </p>
+        <p style="font-size: 0.9em; color: #777;">
+            Datenquelle: GLIMS (Global Land Ice Measurements from Space)
+        </p>
+        <button class="start-btn" onclick="closeModal()">Karte starten</button>
+    </div>
+</div>
+
+<div id="mapid"></div>
+
+<script>
+    // --- FUNKTIONEN ---
+    function closeModal() {
+        var modal = document.getElementById('welcome-modal');
+        modal.style.opacity = '0';
+        setTimeout(function(){ modal.style.display = 'none'; }, 500);
+    }
+
+    // Karte initialisieren
+    var mymap = L.map('mapid').setView([46.50, 8.05], 9);
+
+    // Basemaps
+    var osm_basemap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+    });
+    var otm_basemap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+        maxZoom: 17,
+        attribution: 'Map data: &copy; OpenStreetMap, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)'
+    }).addTo(mymap);
+    var satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri'
+    });
+
+    var basemaps = { "Topographie": otm_basemap, "Straßenkarte": osm_basemap, "Satellit": satellite };
+
+    // --- FARBSKALA & STYLE ---
+    // Bestimmt die Farbe basierend auf der Fläche (db_area in km²)
+    function getColor(area) {
+        return area > 10  ? '#08306b' : // > 10 km² (dunkelblau)
+               area > 5   ? '#08519c' :
+               area > 1   ? '#2171b5' :
+               area > 0.5 ? '#4292c6' :
+               area > 0.1 ? '#9ecae1' : // > 0.1 km²
+                            '#deebf7';  // sehr klein (hellblau)
+    }
+
+    function style(feature) {
+        return {
+            fillColor: getColor(feature.properties.db_area),
+            weight: 1,
+            opacity: 1,
+            color: '#004470', // Randfarbe
+            fillOpacity: 0.75
+        };
+    }
+
+    // --- INTERAKTIVITÄT ---
+    function highlightFeature(e) {
+        var layer = e.target;
+        layer.setStyle({ weight: 3, color: '#ff7800', fillOpacity: 0.9 });
+        if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) { layer.bringToFront(); }
+    }
+
+    function resetHighlight(e) { glacierLayer.resetStyle(e.target); }
+    function zoomToFeature(e) { mymap.fitBounds(e.target.getBounds()); }
+
+    function onEachFeature(feature, layer) {
+        if (feature.properties) {
+            var dateStr = feature.properties.src_date || "Unbekannt";
+            var cleanDate = dateStr.substring(0, 10);
+            var name = feature.properties.glac_name;
+            if (name === "None" || !name) { name = "Unbenannter Gletscher"; }
+            
+            // --- ÄNDERUNG HIER: ---
+            // Statt min/max Höhe (die oft 0 ist), zeigen wir jetzt ID und Region an
+            var glimsId = feature.properties.glac_id || "k.A.";
+            var region = feature.properties.geog_area || "Unbekannt";
+
+            var popupContent = `
+                <div style="font-family: Arial;">
+                    <h3 style="margin: 0 0 5px 0; color: #005a8d;">${name}</h3>
+                    <table style="width:100%; font-size: 13px;">
+                        <tr><td><b>Fläche:</b></td><td>${feature.properties.db_area.toFixed(2)} km²</td></tr>
+                        <tr><td><b>Aufnahme:</b></td><td>${cleanDate}</td></tr>
+                        <tr><td><b>GLIMS ID:</b></td><td style="font-family: monospace;">${glimsId}</td></tr>
+                        <tr><td><b>Region:</b></td><td>${region}</td></tr>
+                    </table>
+                </div>`;
+            layer.bindPopup(popupContent);
+        }
+        layer.on({ mouseover: highlightFeature, mouseout: resetHighlight, click: zoomToFeature });
+    }
+
+    // --- GEOJSON LAYER LADEN ---
+    var glacierLayer = L.geoJSON(glacierData, {
+        style: style,
+        onEachFeature: onEachFeature
+    }).addTo(mymap);
+
+    // --- CUSTOM CONTROLS ---
+
+    // 1. Suche (Oben Rechts)
+    var SearchControl = L.Control.extend({
+        options: { position: 'topright' },
+        onAdd: function (map) {
+            var div = L.DomUtil.create('div', 'search-control');
+            div.innerHTML = `
+                <b style="color:#005a8d">Gletscher Suche:</b><br>
+                <input type="text" id="glacierSearch" class="search-input" placeholder="Name...">
+                <button onclick="searchGlacier()" class="search-btn">Go</button>
+            `;
+            L.DomEvent.disableClickPropagation(div);
+            return div;
+        }
+    });
+    mymap.addControl(new SearchControl());
+
+    window.searchGlacier = function() {
+        var searchText = document.getElementById('glacierSearch').value.toLowerCase();
+        var found = false;
+        glacierLayer.eachLayer(function(layer) {
+            if (found) return;
+            var name = layer.feature.properties.glac_name;
+            if (name && name.toLowerCase().includes(searchText)) {
+                mymap.fitBounds(layer.getBounds());
+                layer.openPopup();
+                found = true;
+            }
+        });
+        if (!found) { alert("Kein Gletscher mit diesem Namen gefunden!"); }
+    };
+
+    // 2. Statistik Box (Oben Rechts, unter der Suche)
+    var StatsControl = L.Control.extend({
+        options: { position: 'topright' },
+        onAdd: function (map) {
+            this._div = L.DomUtil.create('div', 'stats-box');
+            this.update();
+            return this._div;
+        },
+        update: function (count, totalArea) {
+            if (count !== undefined) {
+                this._div.innerHTML = `
+                    <h4 style="margin:0 0 5px 0; color:#005a8d;">Im Ausschnitt</h4>
+                    <b>Anzahl:</b> ${count}<br>
+                    <b>Gesamtfläche:</b> ${totalArea.toFixed(1)} km²
+                `;
+            } else { this._div.innerHTML = 'Lade Daten...'; }
+        }
+    });
+    var stats = new StatsControl();
+    mymap.addControl(stats);
+
+    // Logik für Live-Update der Statistik
+    function updateVisibleStats() {
+        var count = 0;
+        var totalArea = 0;
+        var mapBounds = mymap.getBounds();
+
+        glacierLayer.eachLayer(function(layer) {
+            if (mapBounds.intersects(layer.getBounds())) {
+                count++;
+                totalArea += layer.feature.properties.db_area;
+            }
+        });
+        stats.update(count, totalArea);
+    }
+    mymap.on('moveend', updateVisibleStats); // Update beim Bewegen/Zoomen
+    updateVisibleStats(); // Initialer Aufruf
+
+    // 3. Titel (Unten Links)
+    var TitleControl = L.Control.extend({
+        options: { position: 'bottomleft' },
+        onAdd: function (map) {
+            var div = L.DomUtil.create('div', 'map-title');
+            div.innerHTML = `<h1>Schweizer Gletscher</h1><p>Monitoring & Analyse (GLIMS)</p>`;
+            return div;
+        }
+    });
+    mymap.addControl(new TitleControl());
+
+    // 4. Maßstabsleiste (Unten Links, neben Titel)
+    L.control.scale({ position: 'bottomleft', metric: true, imperial: false }).addTo(mymap);
+
+    // 5. Legende (Unten Rechts)
+    var legend = L.control({position: 'bottomright'});
+    legend.onAdd = function (map) {
+        var div = L.DomUtil.create('div', 'info legend');
+        var grades = [0, 0.1, 0.5, 1, 5, 10];
+        
+        div.innerHTML += '<strong>Fläche (km²)</strong><br>';
+        for (var i = 0; i < grades.length; i++) {
+            div.innerHTML +=
+                '<i style="background:' + getColor(grades[i] + 0.001) + '"></i> ' +
+                grades[i] + (grades[i + 1] ? '&ndash;' + grades[i + 1] + '<br>' : '+');
+        }
+        return div;
+    };
+    legend.addTo(mymap);
+
+    // --- TOOLS ---
+    var overlays = { "Gletscher (GLIMS)": glacierLayer };
+    L.control.layers(basemaps, overlays).addTo(mymap);
+
+    var rulerOptions = { position: 'topleft' };
+    L.control.ruler(rulerOptions).addTo(mymap);
+
+</script>
+</body>
+</html>
